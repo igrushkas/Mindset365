@@ -125,7 +125,7 @@ function renderQuestion(container) {
     container.querySelector('#next-btn')?.addEventListener('click', () => {
         // Validate that current question is answered
         if (answers[q.id] === undefined || answers[q.id] === null || answers[q.id] === '') {
-            showToast('Please answer this question before continuing.', 'warning');
+            window.showToast?.('Please answer this question before continuing.', 'warning');
             return;
         }
 
@@ -286,20 +286,17 @@ async function submitAssessment(container) {
     `;
 
     try {
-        // Format answers for submission
-        const formattedAnswers = Object.entries(answers).map(([questionId, value]) => ({
-            question_id: questionId,
-            answer: value
-        }));
+        // Submit each answer individually (backend expects single answer per request)
+        for (const [questionId, value] of Object.entries(answers)) {
+            await api.post(`/assessments/${assessmentId}/answers`, {
+                question_id: questionId,
+                answer_value: value
+            });
+        }
 
-        // Submit answers
-        const submitRes = await api.post(`/assessments/${assessmentId}/answers`, {
-            answers: formattedAnswers
-        });
-
-        // Fetch results
-        const resultRes = await api.get(`/assessments/${assessmentId}`);
-        results = resultRes?.data || resultRes;
+        // Complete assessment (calculates scores + generates AI recommendations)
+        const completeRes = await api.post(`/assessments/${assessmentId}/complete`);
+        results = completeRes?.data || completeRes;
 
         // Mark onboarding as complete
         const user = getState('user');
@@ -309,7 +306,7 @@ async function submitAssessment(container) {
 
         renderResults(container);
     } catch (err) {
-        showToast(err.message || 'Failed to submit assessment.', 'error');
+        window.showToast?.(err.message || 'Failed to submit assessment.', 'error');
         wizardEl.innerHTML = `
             <div class="text-center" style="padding: var(--sp-12) 0;">
                 <div class="empty-state-icon">&#128533;</div>
@@ -432,10 +429,10 @@ function renderResults(container) {
 
         try {
             await api.post(`/assessments/${assessmentId}/generate-plan`);
-            showToast('Your personalized plan has been created!', 'success');
+            window.showToast?.('Your personalized plan has been created!', 'success');
             navigate('/');
         } catch (err) {
-            showToast(err.message || 'Failed to generate plan. You can try again from the dashboard.', 'error');
+            window.showToast?.(err.message || 'Failed to generate plan. You can try again from the dashboard.', 'error');
             btn.innerHTML = 'Start Your Plan';
             btn.disabled = false;
         }
@@ -475,7 +472,7 @@ export async function render(container, params) {
             assessmentId = params.id;
             renderResults(container);
         } catch (err) {
-            showToast(err.message || 'Failed to load assessment results.', 'error');
+            window.showToast?.(err.message || 'Failed to load assessment results.', 'error');
             navigate('/');
         }
         return;
@@ -509,7 +506,7 @@ export async function render(container, params) {
         renderQuestion(container);
 
     } catch (err) {
-        showToast(err.message || 'Failed to load assessment.', 'error');
+        window.showToast?.(err.message || 'Failed to load assessment.', 'error');
 
         const wizardEl = container.querySelector('#assessment-wizard');
         if (wizardEl) {
