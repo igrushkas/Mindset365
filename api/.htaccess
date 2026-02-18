@@ -1,0 +1,12 @@
+RewriteEngine On
+
+# Route all API requests through index.php
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^(.*)$ index.php [QSA,L]
+
+# Block direct access to PHP files except index.php
+<FilesMatch "\.php$">
+    <If "%{REQUEST_URI} !~ m#/api/index\.php$#">
+        Require all denied
+    </If>
+</FilesMatch>

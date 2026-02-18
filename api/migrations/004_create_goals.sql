@@ -1,0 +1,40 @@
+CREATE TABLE IF NOT EXISTS `goals` (
+    `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    `workspace_id` INT UNSIGNED NOT NULL,
+    `user_id` INT UNSIGNED NOT NULL,
+    `title` VARCHAR(500) NOT NULL,
+    `description` TEXT DEFAULT NULL,
+    `category` ENUM('health', 'wealth', 'relationships', 'business', 'mindset', 'custom') DEFAULT 'custom',
+    `goal_type` ENUM('outcome', 'habit', 'milestone') NOT NULL DEFAULT 'outcome',
+    `target_value` DECIMAL(12,2) DEFAULT NULL,
+    `current_value` DECIMAL(12,2) DEFAULT 0,
+    `unit` VARCHAR(50) DEFAULT NULL,
+    `status` ENUM('not_started', 'in_progress', 'completed', 'paused', 'abandoned') DEFAULT 'not_started',
+    `priority` ENUM('low', 'medium', 'high', 'critical') DEFAULT 'medium',
+    `start_date` DATE DEFAULT NULL,
+    `target_date` DATE DEFAULT NULL,
+    `completed_at` DATETIME DEFAULT NULL,
+    `parent_goal_id` INT UNSIGNED DEFAULT NULL,
+    `sort_order` INT DEFAULT 0,
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (`workspace_id`) REFERENCES `workspaces`(`id`) ON DELETE CASCADE,
+    FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
+    FOREIGN KEY (`parent_goal_id`) REFERENCES `goals`(`id`) ON DELETE SET NULL,
+    INDEX `idx_user_status` (`user_id`, `status`),
+    INDEX `idx_workspace` (`workspace_id`),
+    INDEX `idx_target_date` (`target_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `goal_checkins` (
+    `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    `goal_id` INT UNSIGNED NOT NULL,
+    `user_id` INT UNSIGNED NOT NULL,
+    `value` DECIMAL(12,2) DEFAULT NULL,
+    `note` TEXT DEFAULT NULL,
+    `checkin_date` DATE NOT NULL,
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (`goal_id`) REFERENCES `goals`(`id`) ON DELETE CASCADE,
+    FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
+    INDEX `idx_goal_date` (`goal_id`, `checkin_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

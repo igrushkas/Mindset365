@@ -1,0 +1,55 @@
+# ===========================
+# Mindset365 - .gitignore
+# ===========================
+
+# --- Credentials & Config (NEVER commit these) ---
+api/config/database.php
+api/config/ai.php
+api/config/auth.php
+api/config/app.php
+api/config/payment.php
+
+# --- Logs & Error Files ---
+error_log.txt
+error_log
+*.log
+storage/logs/
+
+# --- Uploaded User Content ---
+storage/avatars/*
+storage/uploads/*
+storage/exports/*
+storage/courses/*
+!storage/avatars/.gitkeep
+!storage/uploads/.gitkeep
+!storage/exports/.gitkeep
+!storage/courses/.gitkeep
+
+# --- Legacy / Unrelated Directories ---
+aianswernow/
+restaurants/
+.private/
+
+# --- Hostinger System ---
+.htaccess.bk
+.claude/
+
+# --- Vendor (if using composer later) ---
+vendor/
+
+# --- OS / IDE ---
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# --- Temp / Test / Debug Scripts ---
+api/test_*.php
+api/cleanup_*.php
+api/debug_*.php
+api/migrations/run_fix.php
