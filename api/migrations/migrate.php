@@ -36,6 +36,10 @@ $migrations = [
     '010_create_automations_notifications.sql',
     '011_seed_default_assessment.sql',
     '012_create_referrals.sql',
+    '013_fix_schema_mismatches.sql',
+    '014_create_user_credits.sql',
+    '015_create_credit_transactions.sql',
+    '016_create_lemon_squeezy_orders.sql',
 ];
 
 $db = Database::connect();

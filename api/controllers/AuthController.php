@@ -132,21 +132,19 @@ class AuthController {
             'workspace_id' => $workspaceId,
         ]);
 
-        // Store token hash for server-side invalidation (replace if exists)
+        // Store token hash for server-side invalidation (upsert to avoid duplicate key errors)
         $jwtHash = Auth::hashToken($jwt);
-        Database::delete('api_tokens', 'token_hash = ?', [$jwtHash]);
-        Database::insert('api_tokens', [
+        Database::insertOrUpdate('api_tokens', [
             'user_id' => $user['id'],
             'token_hash' => $jwtHash,
             'name' => 'session',
             'expires_at' => gmdate('Y-m-d H:i:s', time() + $config['jwt_expiry']),
         ]);
 
-        // Generate refresh token (replace if exists)
+        // Generate refresh token (upsert to avoid duplicate key errors)
         $refreshToken = Auth::generateRefreshToken();
         $refreshHash = Auth::hashToken($refreshToken);
-        Database::delete('api_tokens', 'token_hash = ?', [$refreshHash]);
-        Database::insert('api_tokens', [
+        Database::insertOrUpdate('api_tokens', [
             'user_id' => $user['id'],
             'token_hash' => $refreshHash,
             'name' => 'refresh',
@@ -209,8 +207,7 @@ class AuthController {
         ]);
 
         $jwtHash = Auth::hashToken($jwt);
-        Database::delete('api_tokens', 'token_hash = ?', [$jwtHash]);
-        Database::insert('api_tokens', [
+        Database::insertOrUpdate('api_tokens', [
             'user_id' => $user['id'],
             'token_hash' => $jwtHash,
             'name' => 'session',

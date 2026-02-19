@@ -35,6 +35,19 @@ class Database {
         return (int) self::connect()->lastInsertId();
     }
 
+    /**
+     * INSERT with ON DUPLICATE KEY UPDATE — safe for unique key conflicts.
+     * Updates all provided columns if a duplicate key is found.
+     */
+    public static function insertOrUpdate(string $table, array $data): int {
+        $columns = implode(', ', array_map(fn($col) => "`$col`", array_keys($data)));
+        $placeholders = implode(', ', array_fill(0, count($data), '?'));
+        $updateParts = implode(', ', array_map(fn($col) => "`$col` = VALUES(`$col`)", array_keys($data)));
+        $sql = "INSERT INTO `$table` ($columns) VALUES ($placeholders) ON DUPLICATE KEY UPDATE $updateParts";
+        self::query($sql, array_values($data));
+        return (int) self::connect()->lastInsertId();
+    }
+
     public static function update(string $table, array $data, string $where, array $whereParams = []): int {
         $set = implode(', ', array_map(fn($col) => "`$col` = ?", array_keys($data)));
         $sql = "UPDATE `$table` SET $set WHERE $where";
