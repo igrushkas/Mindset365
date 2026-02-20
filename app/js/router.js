@@ -32,11 +32,13 @@ const routes = [
     { path: '/settings',          loader: () => import('./pages/settings.js') },
     { path: '/assessment',        loader: () => import('./pages/assessment.js') },
     { path: '/referrals',         loader: () => import('./pages/referrals.js') },
-    { path: '/billing',           loader: () => import('./pages/billing.js') }
+    { path: '/billing',           loader: () => import('./pages/billing.js') },
+    { path: '/terms',             loader: () => import('./pages/terms.js') },
+    { path: '/privacy',           loader: () => import('./pages/privacy.js') }
 ];
 
 // Public routes that do not require authentication
-const publicRoutes = new Set(['/login']);
+const publicRoutes = new Set(['/login', '/terms', '/privacy']);
 
 // Current route abort controller for cancelling in-flight navigation
 let currentAbortController = null;
@@ -110,7 +112,7 @@ export async function navigate(path, { replace = false, state = {} } = {}) {
         return;
     }
 
-    // Redirect authenticated users away from login
+    // Redirect authenticated users away from login (but not from terms/privacy)
     if (path === '/login' && (isAuthenticated() || devMode)) {
         navigate('/', { replace: true });
         return;
@@ -124,8 +126,11 @@ export async function navigate(path, { replace = false, state = {} } = {}) {
         return;
     }
 
-    // Ensure login-active class is cleared when navigating to non-login routes
-    if (path !== '/login') {
+    // Full-page routes (no sidebar/topbar): login, terms, privacy
+    const fullPageRoutes = new Set(['/login', '/terms', '/privacy']);
+    if (fullPageRoutes.has(path)) {
+        document.body.classList.add('login-active');
+    } else {
         document.body.classList.remove('login-active');
     }
 

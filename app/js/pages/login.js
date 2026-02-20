@@ -120,7 +120,7 @@ export async function render(container) {
                 <div id="login-error" style="display:none; color: #e74c3c; background: #ffeaea; padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; font-size: 14px; text-align: center;"></div>
 
                 <div class="login-footer">
-                    <p>By signing in, you agree to our Terms of Service and Privacy Policy.</p>
+                    <p>By signing in, you agree to our <a href="/terms">Terms of Service</a> and <a href="/privacy">Privacy Policy</a>.</p>
                 </div>
             </div>
         </div>
