@@ -41,6 +41,7 @@ $migrations = [
     '015_create_credit_transactions.sql',
     '016_create_lemon_squeezy_orders.sql',
     '017_create_task_templates.sql',
+    '018_reseed_task_templates.sql',
 ];
 
 $db = Database::connect();
