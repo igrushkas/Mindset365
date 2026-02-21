@@ -33,6 +33,7 @@ require_once __DIR__ . '/../models/Analytics.php';
 require_once __DIR__ . '/../models/Workspace.php';
 require_once __DIR__ . '/../models/Automation.php';
 require_once __DIR__ . '/../models/Notification.php';
+require_once __DIR__ . '/../models/TaskTemplate.php';
 
 // Load controllers
 require_once __DIR__ . '/../controllers/AuthController.php';
@@ -53,6 +54,7 @@ require_once __DIR__ . '/../controllers/AssessmentController.php';
 require_once __DIR__ . '/../controllers/ReferralController.php';
 require_once __DIR__ . '/../controllers/BillingController.php';
 require_once __DIR__ . '/../controllers/WebhookController.php';
+require_once __DIR__ . '/../controllers/TaskTemplateController.php';
 
 class App {
     private Router $router;
@@ -150,6 +152,18 @@ class App {
             $r->get('/clients/{id}/sessions', [ClientController::class, 'sessions']);
             $r->post('/clients/{id}/sessions', [ClientController::class, 'addSession']);
             $r->put('/clients/{id}/sessions/{sid}', [ClientController::class, 'updateSession']);
+            $r->post('/clients/{id}/assign-template', [TaskTemplateController::class, 'assignToClient']);
+            $r->get('/clients/{id}/templates', [TaskTemplateController::class, 'clientTemplates']);
+
+            // Task Templates (coach only)
+            $r->get('/task-templates', [TaskTemplateController::class, 'index']);
+            $r->post('/task-templates', [TaskTemplateController::class, 'store']);
+            $r->get('/task-templates/{id}', [TaskTemplateController::class, 'show']);
+            $r->put('/task-templates/{id}', [TaskTemplateController::class, 'update']);
+            $r->delete('/task-templates/{id}', [TaskTemplateController::class, 'destroy']);
+            $r->post('/task-templates/{id}/tasks', [TaskTemplateController::class, 'addTask']);
+            $r->put('/task-templates/{id}/tasks/{tid}', [TaskTemplateController::class, 'updateTask']);
+            $r->delete('/task-templates/{id}/tasks/{tid}', [TaskTemplateController::class, 'removeTask']);
 
             // Courses
             $r->get('/courses', [CourseController::class, 'index']);

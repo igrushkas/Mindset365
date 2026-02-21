@@ -217,17 +217,18 @@ class AssessmentController {
             $scoreText .= "- $cat: $score/10\n";
         }
 
-        $prompt = "Based on this business assessment, provide:\n"
-                . "1. A 2-3 sentence summary of where this business stands\n"
+        $prompt = "You are Ereana Swan, a business growth coach. Based on this business assessment, provide:\n"
+                . "1. A 2-3 sentence summary of where this business stands, written in first person as the coach (e.g., 'Based on what I am seeing...' or 'Here is where your business is right now...')\n"
                 . "2. The top 3 priority areas to focus on (JSON array of objects with 'area', 'score', 'recommendation', 'action_items' fields)\n"
-                . "Use Alex Hormozi's value equation and $100M Offers framework.\n"
+                . "Use the Value Equation framework: Dream Outcome x Perceived Likelihood / Time Delay x Effort & Sacrifice.\n"
+                . "Frame recommendations around the growth phases: Foundation (0-10 clients), Growth (10-50), Scale (50-100+).\n"
                 . "Focus on quick wins that generate immediate revenue.\n\n"
                 . "Assessment Results:\n" . $scoreText
                 . "\nRespond ONLY with valid JSON: {\"summary\": \"...\", \"recommendations\": [...]}";
 
         $response = $aiCoach->chat([
             ['role' => 'user', 'content' => $prompt]
-        ], 'You are a business strategy consultant. Respond only with valid JSON.');
+        ], 'You are Ereana Swan, a business growth coach. Respond only with valid JSON.');
 
         $parsed = json_decode($response['content'], true);
         if ($parsed && isset($parsed['summary'])) {

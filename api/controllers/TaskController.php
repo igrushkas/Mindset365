@@ -247,15 +247,23 @@ class TaskController {
     }
 
     public function myTasks(Request $request): void {
-        $tasks = Database::fetchAll(
-            "SELECT t.*, bc.name as column_name, b.name as board_name, b.color as board_color
-             FROM tasks t
-             JOIN board_columns bc ON t.column_id = bc.id
-             JOIN boards b ON t.board_id = b.id
-             WHERE t.assigned_to = ? AND b.workspace_id = ? AND t.completed_at IS NULL
-             ORDER BY t.due_date ASC, t.priority DESC",
-            [Auth::id(), Auth::workspaceId()]
-        );
+        $includeCompleted = $request->query('include_completed');
+
+        $sql = "SELECT t.*, bc.name as column_name, bc.is_done_column,
+                       b.name as board_name, b.color as board_color
+                FROM tasks t
+                JOIN board_columns bc ON t.column_id = bc.id
+                JOIN boards b ON t.board_id = b.id
+                WHERE t.assigned_to = ? AND b.workspace_id = ?";
+        $params = [Auth::id(), Auth::workspaceId()];
+
+        if (!$includeCompleted) {
+            $sql .= " AND t.completed_at IS NULL";
+        }
+
+        $sql .= " ORDER BY t.completed_at IS NOT NULL ASC, FIELD(t.priority, 'urgent', 'high', 'medium', 'low', 'none'), t.due_date ASC";
+
+        $tasks = Database::fetchAll($sql, $params);
         Response::json($tasks);
     }
 

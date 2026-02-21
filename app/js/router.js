@@ -7,7 +7,7 @@ import { isAuthenticated } from './auth.js';
 import { setState, getState } from './store.js';
 
 // Routes that require owner/admin role
-const ownerRoutes = new Set(['/clients', '/courses', '/content', '/analytics', '/automations']);
+const ownerRoutes = new Set(['/clients', '/courses', '/content', '/analytics', '/automations', '/templates']);
 
 /**
  * Route definitions.
@@ -33,6 +33,7 @@ const routes = [
     { path: '/assessment',        loader: () => import('./pages/assessment.js') },
     { path: '/referrals',         loader: () => import('./pages/referrals.js') },
     { path: '/billing',           loader: () => import('./pages/billing.js') },
+    { path: '/templates',         loader: () => import('./pages/templates.js') },
     { path: '/terms',             loader: () => import('./pages/terms.js') },
     { path: '/privacy',           loader: () => import('./pages/privacy.js') }
 ];

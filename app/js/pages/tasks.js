@@ -4,9 +4,10 @@
  */
 
 import api from '../api.js';
+import { getState } from '../store.js';
 import { openModal, closeModal } from '../components/modal.js';
 import { renderKanban } from '../components/kanban.js';
-import { formatDate, timeAgo, getInitials, statusBadge } from '../utils.js';
+import { formatDate, timeAgo, getInitials, statusBadge, escapeHtml } from '../utils.js';
 
 /** Current view mode */
 let viewMode = 'kanban';
@@ -540,12 +541,21 @@ function renderPage(container) {
 
 /**
  * Render the tasks page.
+ * Coach sees Kanban board. Client sees personal task checklist.
  * @param {HTMLElement} container
  */
 export async function render(container) {
+    const user = getState('user');
+    const isCoach = user?.role === 'owner' || user?.role === 'admin' || user?.role === 'coach';
+
+    if (!isCoach) {
+        await renderClientTaskView(container);
+        return;
+    }
+
+    // Coach view: Kanban board (existing behavior)
     viewMode = 'kanban';
 
-    // Show loading skeleton
     container.innerHTML = `
         <div class="page-enter">
             <div class="page-header">
@@ -558,13 +568,365 @@ export async function render(container) {
         </div>
     `;
 
-    // Load boards
     boards = await fetchBoards();
-
-    // Select first board by default
     if (boards.length > 0 && !activeBoard) {
         activeBoard = await fetchBoard(boards[0].id);
     }
-
     renderPage(container);
+}
+
+// ================================================================
+// CLIENT TASK CHECKLIST VIEW
+// ================================================================
+
+let clientFilter = 'all';
+let clientTasks = [];
+
+async function renderClientTaskView(container) {
+    container.innerHTML = `
+        <div class="page-enter">
+            <div class="page-header">
+                <div>
+                    <h1>My Tasks</h1>
+                    <span class="text-muted">Complete your tasks to grow your business</span>
+                </div>
+                <div class="page-header-actions">
+                    <button class="btn btn-primary" id="client-add-task-btn">+ Add Task</button>
+                </div>
+            </div>
+
+            <div id="client-progress-bar" style="margin-bottom:var(--sp-4);"></div>
+
+            <div class="tabs" id="client-filter-tabs">
+                <div class="tab-item active" data-filter="all">All</div>
+                <div class="tab-item" data-filter="todo">To Do</div>
+                <div class="tab-item" data-filter="in_progress">In Progress</div>
+                <div class="tab-item" data-filter="done">Done</div>
+            </div>
+
+            <div id="client-tasks-list">
+                <div class="animate-pulse" style="padding:var(--sp-2);">
+                    <div class="skeleton skeleton-card" style="height:60px;margin-bottom:var(--sp-2);"></div>
+                    <div class="skeleton skeleton-card" style="height:60px;margin-bottom:var(--sp-2);"></div>
+                    <div class="skeleton skeleton-card" style="height:60px;"></div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // Load tasks
+    try {
+        clientTasks = await api.get('/tasks/my?include_completed=1');
+        if (!Array.isArray(clientTasks)) clientTasks = [];
+    } catch (err) {
+        clientTasks = [];
+    }
+
+    renderClientProgress();
+    renderClientList();
+    bindClientEvents(container);
+}
+
+function renderClientProgress() {
+    const el = document.getElementById('client-progress-bar');
+    if (!el || clientTasks.length === 0) {
+        if (el) el.innerHTML = '';
+        return;
+    }
+
+    const total = clientTasks.length;
+    const done = clientTasks.filter(t => t.completed_at || t.is_done_column == 1).length;
+    const pct = Math.round((done / total) * 100);
+
+    el.innerHTML = `
+        <div class="flex items-center gap-3" style="margin-bottom:var(--sp-1);">
+            <span style="font-size:0.8rem;font-weight:600;color:var(--text-primary);">${done} of ${total} completed</span>
+            <span style="font-size:0.75rem;color:var(--text-muted);">${pct}%</span>
+        </div>
+        <div class="progress-bar">
+            <div class="progress-fill" style="width:${pct}%;"></div>
+        </div>
+    `;
+}
+
+function renderClientList() {
+    const el = document.getElementById('client-tasks-list');
+    if (!el) return;
+
+    let filtered = clientTasks;
+    if (clientFilter === 'todo') {
+        filtered = clientTasks.filter(t => !t.completed_at && t.column_name?.toLowerCase() !== 'in progress');
+    } else if (clientFilter === 'in_progress') {
+        filtered = clientTasks.filter(t => !t.completed_at && t.column_name?.toLowerCase() === 'in progress');
+    } else if (clientFilter === 'done') {
+        filtered = clientTasks.filter(t => t.completed_at || t.is_done_column == 1);
+    }
+
+    if (filtered.length === 0) {
+        el.innerHTML = `
+            <div class="empty-state" style="padding:var(--sp-8);text-align:center;">
+                <div style="font-size:3rem;margin-bottom:var(--sp-2);">&#9989;</div>
+                <h3>${clientFilter === 'done' ? 'No completed tasks yet' : clientFilter === 'all' ? 'No tasks assigned yet' : 'No tasks in this category'}</h3>
+                <p class="text-muted">${clientFilter === 'all' ? 'Your coach will assign tasks for you, or add your own.' : ''}</p>
+            </div>
+        `;
+        return;
+    }
+
+    el.innerHTML = `<div style="display:flex;flex-direction:column;gap:var(--sp-2);">
+        ${filtered.map(task => {
+            const isDone = !!task.completed_at || task.is_done_column == 1;
+            const priorityColors = { urgent: '#e74c3c', high: '#f39c12', medium: '#3498db', low: '#95a5a6', none: 'transparent' };
+            const priorityColor = priorityColors[task.priority] || 'transparent';
+
+            return `
+                <div class="client-task-item card" style="border-left:3px solid ${priorityColor};" data-task-id="${task.id}">
+                    <div class="card-body" style="padding:var(--sp-3) var(--sp-4);display:flex;align-items:center;gap:var(--sp-3);">
+                        <input type="checkbox" class="client-task-check" data-task-id="${task.id}" ${isDone ? 'checked' : ''}
+                            style="width:20px;height:20px;accent-color:var(--color-primary);cursor:pointer;flex-shrink:0;">
+                        <div style="flex:1;min-width:0;">
+                            <div style="font-size:0.9rem;font-weight:500;${isDone ? 'text-decoration:line-through;color:var(--text-muted);' : ''}">${escapeHtml(task.title)}</div>
+                            ${task.description ? `<div class="text-muted" style="font-size:0.75rem;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(task.description).substring(0, 80)}</div>` : ''}
+                        </div>
+                        <div class="flex items-center gap-2" style="flex-shrink:0;">
+                            ${task.due_date ? `<span class="text-muted" style="font-size:0.7rem;">${formatDate(task.due_date)}</span>` : ''}
+                            <span class="badge badge-neutral" style="font-size:0.65rem;">${escapeHtml(task.column_name || 'To Do')}</span>
+                            <button class="btn-icon btn-ghost client-task-edit" data-task-id="${task.id}" title="Edit" style="font-size:0.75rem;padding:4px;">&#9998;</button>
+                            <button class="btn-icon btn-ghost client-task-delete" data-task-id="${task.id}" title="Delete" style="font-size:0.75rem;padding:4px;color:var(--color-danger);">&#10005;</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('')}
+    </div>`;
+
+    // Bind task checkbox events
+    el.querySelectorAll('.client-task-check').forEach(checkbox => {
+        checkbox.addEventListener('change', async (e) => {
+            const taskId = parseInt(checkbox.dataset.taskId);
+            const task = clientTasks.find(t => t.id == taskId);
+            if (!task) return;
+
+            const isChecking = checkbox.checked;
+
+            try {
+                if (isChecking) {
+                    // Find the done column for this task's board
+                    const boardData = await api.get(`/boards/${task.board_id}`);
+                    const doneCol = (boardData.columns || []).find(c => c.is_done_column == 1);
+                    if (doneCol) {
+                        await api.put(`/tasks/${taskId}/move`, { column_id: doneCol.id, sort_order: 0 });
+                        task.completed_at = new Date().toISOString();
+                        task.is_done_column = 1;
+                        task.column_name = doneCol.name || 'Done';
+                    }
+                } else {
+                    // Move back to first non-done column
+                    const boardData = await api.get(`/boards/${task.board_id}`);
+                    const todoCol = (boardData.columns || []).find(c => c.is_done_column != 1);
+                    if (todoCol) {
+                        await api.put(`/tasks/${taskId}/move`, { column_id: todoCol.id, sort_order: 0 });
+                        task.completed_at = null;
+                        task.is_done_column = 0;
+                        task.column_name = todoCol.name || 'To Do';
+                    }
+                }
+                renderClientProgress();
+                renderClientList();
+            } catch (err) {
+                checkbox.checked = !isChecking; // revert
+                showToast(err.message || 'Failed to update task', 'error');
+            }
+        });
+    });
+
+    // Edit task
+    el.querySelectorAll('.client-task-edit').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const taskId = parseInt(btn.dataset.taskId);
+            const task = clientTasks.find(t => t.id == taskId);
+            if (task) openClientEditTaskModal(task);
+        });
+    });
+
+    // Delete task
+    el.querySelectorAll('.client-task-delete').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const taskId = parseInt(btn.dataset.taskId);
+            if (!confirm('Remove this task?')) return;
+            try {
+                await api.delete(`/tasks/${taskId}`);
+                clientTasks = clientTasks.filter(t => t.id != taskId);
+                renderClientProgress();
+                renderClientList();
+                showToast('Task removed', 'success');
+            } catch (err) {
+                showToast(err.message || 'Failed to delete', 'error');
+            }
+        });
+    });
+}
+
+function bindClientEvents(container) {
+    // Filter tabs
+    container.querySelectorAll('#client-filter-tabs .tab-item').forEach(tab => {
+        tab.addEventListener('click', () => {
+            container.querySelectorAll('#client-filter-tabs .tab-item').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            clientFilter = tab.dataset.filter;
+            renderClientList();
+        });
+    });
+
+    // Add task button
+    container.querySelector('#client-add-task-btn')?.addEventListener('click', () => {
+        openClientAddTaskModal();
+    });
+}
+
+function openClientAddTaskModal() {
+    openModal({
+        title: 'Add a Task',
+        body: `
+            <div class="form-group">
+                <label>Task Title</label>
+                <input type="text" id="new-task-title" placeholder="What do you need to do?" autofocus>
+            </div>
+            <div class="form-group">
+                <label>Description (optional)</label>
+                <textarea id="new-task-desc" rows="2" placeholder="Any details or notes..."></textarea>
+            </div>
+            <div class="form-group">
+                <label>Priority</label>
+                <select id="new-task-priority">
+                    <option value="medium" selected>Medium</option>
+                    <option value="high">High</option>
+                    <option value="low">Low</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Due Date (optional)</label>
+                <input type="date" id="new-task-due">
+            </div>
+        `,
+        footer: `<button class="btn btn-secondary" id="modal-cancel-btn">Cancel</button>
+                 <button class="btn btn-primary" id="modal-save-btn">Add Task</button>`,
+        onMount: (overlay) => {
+            overlay.querySelector('#modal-cancel-btn').addEventListener('click', closeModal);
+            overlay.querySelector('#modal-save-btn').addEventListener('click', async () => {
+                const title = overlay.querySelector('#new-task-title').value.trim();
+                if (!title) { showToast('Title is required', 'error'); return; }
+
+                const btn = overlay.querySelector('#modal-save-btn');
+                btn.innerHTML = '<span class="spinner-sm"></span> Adding...';
+                btn.disabled = true;
+
+                try {
+                    // Find an existing board for the client, or use first available board
+                    let boardId, columnId;
+                    if (clientTasks.length > 0) {
+                        boardId = clientTasks[0].board_id;
+                        // Use first non-done column
+                        const boardData = await api.get(`/boards/${boardId}`);
+                        const todoCol = (boardData.columns || []).find(c => c.is_done_column != 1);
+                        columnId = todoCol?.id;
+                    }
+
+                    if (!boardId || !columnId) {
+                        // Try to get any board
+                        const allBoards = await api.get('/boards');
+                        const boardList = Array.isArray(allBoards?.data) ? allBoards.data : (Array.isArray(allBoards) ? allBoards : []);
+                        if (boardList.length > 0) {
+                            const boardData = await api.get(`/boards/${boardList[0].id}`);
+                            boardId = boardList[0].id;
+                            const todoCol = (boardData.columns || []).find(c => c.is_done_column != 1);
+                            columnId = todoCol?.id;
+                        }
+                    }
+
+                    if (!boardId || !columnId) {
+                        showToast('No task board available. Ask your coach to set one up.', 'warning');
+                        btn.innerHTML = 'Add Task';
+                        btn.disabled = false;
+                        return;
+                    }
+
+                    const newTask = await api.post('/tasks', {
+                        title,
+                        description: overlay.querySelector('#new-task-desc').value.trim(),
+                        priority: overlay.querySelector('#new-task-priority').value,
+                        due_date: overlay.querySelector('#new-task-due').value || null,
+                        board_id: boardId,
+                        column_id: columnId,
+                    });
+
+                    clientTasks.unshift({ ...newTask, column_name: 'To Do', is_done_column: 0 });
+                    closeModal();
+                    renderClientProgress();
+                    renderClientList();
+                    showToast('Task added!', 'success');
+                } catch (err) {
+                    showToast(err.message || 'Failed to add task', 'error');
+                    btn.innerHTML = 'Add Task';
+                    btn.disabled = false;
+                }
+            });
+        }
+    });
+}
+
+function openClientEditTaskModal(task) {
+    openModal({
+        title: 'Edit Task',
+        body: `
+            <div class="form-group">
+                <label>Title</label>
+                <input type="text" id="edit-task-title" value="${escapeHtml(task.title)}">
+            </div>
+            <div class="form-group">
+                <label>Description</label>
+                <textarea id="edit-task-desc" rows="2">${escapeHtml(task.description || '')}</textarea>
+            </div>
+            <div class="form-group">
+                <label>Priority</label>
+                <select id="edit-task-priority">
+                    <option value="high" ${task.priority === 'high' ? 'selected' : ''}>High</option>
+                    <option value="medium" ${task.priority === 'medium' ? 'selected' : ''}>Medium</option>
+                    <option value="low" ${task.priority === 'low' ? 'selected' : ''}>Low</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Due Date</label>
+                <input type="date" id="edit-task-due" value="${task.due_date ? task.due_date.split('T')[0] : ''}">
+            </div>
+        `,
+        footer: `<button class="btn btn-secondary" id="modal-cancel-btn">Cancel</button>
+                 <button class="btn btn-primary" id="modal-save-btn">Save</button>`,
+        onMount: (overlay) => {
+            overlay.querySelector('#modal-cancel-btn').addEventListener('click', closeModal);
+            overlay.querySelector('#modal-save-btn').addEventListener('click', async () => {
+                const title = overlay.querySelector('#edit-task-title').value.trim();
+                if (!title) { showToast('Title is required', 'error'); return; }
+
+                try {
+                    const updated = await api.put(`/tasks/${task.id}`, {
+                        title,
+                        description: overlay.querySelector('#edit-task-desc').value.trim(),
+                        priority: overlay.querySelector('#edit-task-priority').value,
+                        due_date: overlay.querySelector('#edit-task-due').value || null,
+                    });
+                    // Update local
+                    const idx = clientTasks.findIndex(t => t.id == task.id);
+                    if (idx >= 0) Object.assign(clientTasks[idx], updated);
+                    closeModal();
+                    renderClientList();
+                    showToast('Task updated', 'success');
+                } catch (err) {
+                    showToast(err.message || 'Failed to update', 'error');
+                }
+            });
+        }
+    });
 }

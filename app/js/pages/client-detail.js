@@ -16,6 +16,9 @@ let client = null;
 let sessions = [];
 let goals = [];
 let notes = [];
+let clientTasks = [];
+let clientTemplateAssignments = [];
+let availableTemplates = [];
 
 /** Active tab key */
 let activeTab = 'overview';
@@ -31,6 +34,7 @@ let isAddingSession = false;
  */
 const TABS = [
     { key: 'overview', label: 'Overview' },
+    { key: 'tasks', label: 'Tasks' },
     { key: 'sessions', label: 'Sessions' },
     { key: 'goals', label: 'Goals' },
     { key: 'notes', label: 'Notes' }
@@ -452,12 +456,88 @@ function renderNotesTab() {
 }
 
 /**
+ * Render the Tasks tab content.
+ * Shows assigned templates, task list, and controls for assigning templates or creating custom tasks.
+ * @returns {string} HTML string
+ */
+function renderTasksTab() {
+    const totalTasks = clientTasks.length;
+    const doneTasks = clientTasks.filter(t => t.completed_at || t.is_done_column == 1).length;
+    const pct = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
+
+    // Assigned templates summary
+    const assignedHTML = clientTemplateAssignments.length > 0 ? `
+        <div class="flex gap-2 flex-wrap mb-4">
+            ${clientTemplateAssignments.map(a => `
+                <span class="badge badge-primary">${escapeHtml(a.template_name || a.name || 'Template')} (${a.tasks_created || 0} tasks)</span>
+            `).join('')}
+        </div>
+    ` : '';
+
+    // Progress bar
+    const progressHTML = totalTasks > 0 ? `
+        <div class="card mb-4" style="padding: var(--sp-4);">
+            <div class="flex items-center justify-between mb-2">
+                <span class="text-sm font-medium">${doneTasks} of ${totalTasks} tasks completed</span>
+                <span class="text-sm font-bold">${pct}%</span>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-fill ${pct >= 100 ? 'green' : pct >= 60 ? '' : 'orange'}" style="width: ${pct}%;"></div>
+            </div>
+        </div>
+    ` : '';
+
+    // Task list
+    const priorityColors = { urgent: '#ef4444', high: '#f97316', medium: '#eab308', low: '#3b82f6', none: '#94a3b8' };
+    const taskListHTML = totalTasks > 0 ? `
+        <div class="flex flex-col gap-2 stagger">
+            ${clientTasks.map(t => {
+                const isDone = t.completed_at || t.is_done_column == 1;
+                const prColor = priorityColors[t.priority] || priorityColors.none;
+                return `
+                    <div class="card" style="padding: var(--sp-3) var(--sp-4); border-left: 3px solid ${prColor}; opacity: ${isDone ? '0.6' : '1'};">
+                        <div class="flex items-center gap-3">
+                            <span style="font-size: 1.1em; cursor: default;">${isDone ? '&#9989;' : '&#9744;'}</span>
+                            <div style="flex: 1; min-width: 0;">
+                                <div class="font-medium text-sm" style="${isDone ? 'text-decoration: line-through;' : ''}">${escapeHtml(t.title)}</div>
+                                ${t.description ? `<div class="text-xs text-muted" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(t.description)}</div>` : ''}
+                            </div>
+                            <div class="flex items-center gap-2">
+                                ${t.due_date ? `<span class="text-xs text-muted">${formatDate(t.due_date)}</span>` : ''}
+                                <span class="badge badge-${isDone ? 'success' : 'neutral'}" style="font-size: 0.65rem;">${isDone ? 'Done' : escapeHtml(t.column_name || capitalize(t.priority || 'todo'))}</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('')}
+        </div>
+    ` : `
+        <div class="empty-state" style="padding: var(--sp-6);">
+            <div class="empty-state-icon">&#128203;</div>
+            <h3>No tasks assigned</h3>
+            <p>Assign a template or create custom tasks for this client.</p>
+        </div>
+    `;
+
+    return `
+        <div class="flex items-center justify-end gap-2 mb-4">
+            <button class="btn btn-secondary btn-sm" id="assign-template-btn">&#128196; Assign Template</button>
+            <button class="btn btn-primary btn-sm" id="create-custom-task-btn">+ Create Task</button>
+        </div>
+        ${assignedHTML}
+        ${progressHTML}
+        ${taskListHTML}
+    `;
+}
+
+/**
  * Render the tab content based on the active tab.
  * @returns {string} HTML string
  */
 function renderTabContent() {
     switch (activeTab) {
         case 'overview': return renderOverviewTab();
+        case 'tasks': return renderTasksTab();
         case 'sessions': return renderSessionsTab();
         case 'goals': return renderGoalsTab();
         case 'notes': return renderNotesTab();
@@ -650,6 +730,14 @@ function attachTabListeners(container) {
         });
     }
 
+    if (activeTab === 'tasks') {
+        // Assign Template button
+        container.querySelector('#assign-template-btn')?.addEventListener('click', () => openAssignTemplateModal(container));
+
+        // Create Custom Task button
+        container.querySelector('#create-custom-task-btn')?.addEventListener('click', () => openCreateTaskModal(container));
+    }
+
     if (activeTab === 'notes') {
         // Add note
         container.querySelector('#add-note-btn')?.addEventListener('click', async () => {
@@ -727,6 +815,299 @@ async function loadClientNotes(id) {
 }
 
 /**
+ * Load tasks assigned to this client.
+ * Finds tasks by looking up the client's user_id and their board.
+ * @param {string|number} clientId
+ */
+async function loadClientTasks(clientId) {
+    try {
+        // Get templates assigned to this client (includes board_id info)
+        const tplRes = await api.get(`/clients/${clientId}/templates`);
+        clientTemplateAssignments = Array.isArray(tplRes?.data) ? tplRes.data : (Array.isArray(tplRes) ? tplRes : []);
+
+        // If we have a board_id from assignments, load tasks from that board
+        if (clientTemplateAssignments.length > 0 && clientTemplateAssignments[0].board_id) {
+            const boardId = clientTemplateAssignments[0].board_id;
+            const taskRes = await api.get(`/tasks?board_id=${boardId}&include_completed=1`);
+            clientTasks = Array.isArray(taskRes?.data) ? taskRes.data : (Array.isArray(taskRes) ? taskRes : []);
+        } else {
+            clientTasks = [];
+        }
+    } catch {
+        clientTasks = [];
+        clientTemplateAssignments = [];
+    }
+}
+
+/**
+ * Open modal to assign a task template to this client.
+ * @param {HTMLElement} container
+ */
+async function openAssignTemplateModal(container) {
+    // Load available templates if not already loaded
+    if (availableTemplates.length === 0) {
+        try {
+            const res = await api.get('/task-templates');
+            availableTemplates = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : []);
+        } catch {
+            window.showToast('Failed to load templates.', 'error');
+            return;
+        }
+    }
+
+    if (availableTemplates.length === 0) {
+        window.showToast('No templates available. Create templates first in the Templates page.', 'warning');
+        return;
+    }
+
+    // Group templates by phase
+    const phases = ['foundation', 'growth', 'scale'];
+    const phaseLabels = { foundation: '🏗️ Foundation (0→10 clients)', growth: '📈 Growth (10→50 clients)', scale: '🚀 Scale (50→100+ clients)' };
+
+    // Track which templates are already assigned
+    const assignedIds = new Set(clientTemplateAssignments.map(a => String(a.template_id)));
+
+    const templateListHTML = phases.map(phase => {
+        const phaseTemplates = availableTemplates.filter(t => t.phase === phase);
+        if (phaseTemplates.length === 0) return '';
+        return `
+            <div class="mb-4">
+                <div class="text-xs text-muted font-medium mb-2" style="text-transform: uppercase; letter-spacing: 0.05em;">${phaseLabels[phase] || capitalize(phase)}</div>
+                <div class="flex flex-col gap-2">
+                    ${phaseTemplates.map(t => {
+                        const isAssigned = assignedIds.has(String(t.id));
+                        return `
+                            <div class="card" style="padding: var(--sp-3) var(--sp-4); ${isAssigned ? 'opacity: 0.5;' : 'cursor: pointer;'}"
+                                 ${isAssigned ? '' : `class="card hover-lift template-option" data-template-id="${t.id}"`}>
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <div class="font-medium text-sm">${escapeHtml(t.name)}</div>
+                                        ${t.description ? `<div class="text-xs text-muted">${escapeHtml(t.description)}</div>` : ''}
+                                        <div class="text-xs text-secondary mt-1">${t.task_count || 0} tasks</div>
+                                    </div>
+                                    ${isAssigned
+                                        ? '<span class="badge badge-success">Assigned</span>'
+                                        : '<span class="text-xs text-primary">Click to assign →</span>'}
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay active';
+    modal.innerHTML = `
+        <div class="modal" style="max-width: 560px; max-height: 80vh;">
+            <div class="modal-header">
+                <h3>Assign Template to ${escapeHtml(client.name)}</h3>
+                <button class="modal-close" id="close-assign-modal">&times;</button>
+            </div>
+            <div class="modal-body" style="overflow-y: auto; max-height: 60vh;">
+                <p class="text-sm text-muted mb-4">Select a template to assign. This will create tasks on the client's board.</p>
+                ${templateListHTML || '<p class="text-sm text-muted">No templates available.</p>'}
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // Close button
+    modal.querySelector('#close-assign-modal')?.addEventListener('click', () => modal.remove());
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+
+    // Template selection
+    modal.querySelectorAll('.template-option').forEach(el => {
+        el.addEventListener('click', async () => {
+            const templateId = el.dataset.templateId;
+            if (!templateId) return;
+
+            // Confirm
+            const templateName = el.querySelector('.font-medium')?.textContent || 'Template';
+            if (!confirm(`Assign "${templateName}" to ${client.name}? This will create tasks on their board.`)) return;
+
+            el.style.pointerEvents = 'none';
+            el.style.opacity = '0.5';
+            el.querySelector('.text-primary')?.replaceWith(Object.assign(document.createElement('span'), {
+                className: 'spinner-sm',
+            }));
+
+            try {
+                await api.post(`/clients/${client.id}/assign-template`, { template_id: parseInt(templateId) });
+                window.showToast(`Template assigned to ${client.name}!`, 'success');
+                modal.remove();
+
+                // Reload tasks and re-render
+                await loadClientTasks(client.id);
+                availableTemplates = []; // Reset to reload assigned status
+                const tabContent = container.querySelector('#tab-content');
+                if (tabContent) {
+                    tabContent.innerHTML = renderTasksTab();
+                    attachTabListeners(container);
+                }
+            } catch (err) {
+                window.showToast(err.message || 'Failed to assign template.', 'error');
+                el.style.pointerEvents = '';
+                el.style.opacity = '';
+            }
+        });
+    });
+}
+
+/**
+ * Open modal to create a custom one-off task for this client.
+ * @param {HTMLElement} container
+ */
+function openCreateTaskModal(container) {
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay active';
+    modal.innerHTML = `
+        <div class="modal" style="max-width: 480px;">
+            <div class="modal-header">
+                <h3>Create Task for ${escapeHtml(client.name)}</h3>
+                <button class="modal-close" id="close-task-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Task Title *</label>
+                    <input type="text" id="custom-task-title" placeholder="e.g., Review pricing strategy">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Description</label>
+                    <textarea id="custom-task-desc" rows="3" placeholder="Task details..."></textarea>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Priority</label>
+                        <select id="custom-task-priority">
+                            <option value="medium">Medium</option>
+                            <option value="high">High</option>
+                            <option value="urgent">Urgent</option>
+                            <option value="low">Low</option>
+                            <option value="none">None</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Due Date</label>
+                        <input type="date" id="custom-task-due">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" id="cancel-task-modal">Cancel</button>
+                <button class="btn btn-primary" id="save-custom-task">Create Task</button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // Close handlers
+    modal.querySelector('#close-task-modal')?.addEventListener('click', () => modal.remove());
+    modal.querySelector('#cancel-task-modal')?.addEventListener('click', () => modal.remove());
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+
+    // Save handler
+    modal.querySelector('#save-custom-task')?.addEventListener('click', async () => {
+        const title = modal.querySelector('#custom-task-title')?.value?.trim();
+        if (!title) {
+            window.showToast('Task title is required.', 'warning');
+            return;
+        }
+
+        const btn = modal.querySelector('#save-custom-task');
+        btn.innerHTML = '<span class="spinner-sm"></span> Creating...';
+        btn.disabled = true;
+
+        try {
+            // We need a board for this client. Use the assignment board or find/create one.
+            let boardId = null;
+            if (clientTemplateAssignments.length > 0 && clientTemplateAssignments[0].board_id) {
+                boardId = clientTemplateAssignments[0].board_id;
+            }
+
+            if (!boardId) {
+                // Create a board for this client via the assign-template endpoint with a dummy call,
+                // or just use the tasks endpoint with board creation
+                // For now, let's assign a simple template first or create via a direct task POST
+                // The POST /tasks endpoint requires a column_id, so we need to find/create a board
+                const boardRes = await api.post('/boards', {
+                    name: `${client.name} Tasks`,
+                    description: `Task board for ${client.name}`,
+                    color: '#6366f1'
+                });
+                const board = boardRes?.data || boardRes;
+                boardId = board.id;
+
+                // The board should have default columns; get the first (To Do) column
+                const boardDetail = await api.get(`/boards/${boardId}`);
+                const boardData = boardDetail?.data || boardDetail;
+                const columns = boardData?.columns || [];
+                const todoCol = columns.find(c => c.name === 'To Do') || columns[0];
+
+                if (todoCol) {
+                    await createTaskOnBoard(modal, container, title, todoCol.id, boardId);
+                } else {
+                    // Add a To Do column
+                    const colRes = await api.post(`/boards/${boardId}/columns`, { name: 'To Do', sort_order: 0, is_done_column: 0 });
+                    const col = colRes?.data || colRes;
+                    await createTaskOnBoard(modal, container, title, col.id, boardId);
+                }
+            } else {
+                // Get the board columns and find the To Do column
+                const boardDetail = await api.get(`/boards/${boardId}`);
+                const boardData = boardDetail?.data || boardDetail;
+                const columns = boardData?.columns || [];
+                const todoCol = columns.find(c => c.name === 'To Do') || columns[0];
+                if (todoCol) {
+                    await createTaskOnBoard(modal, container, title, todoCol.id, boardId);
+                } else {
+                    window.showToast('Board has no columns. Please check board setup.', 'error');
+                    btn.innerHTML = 'Create Task';
+                    btn.disabled = false;
+                }
+            }
+        } catch (err) {
+            window.showToast(err.message || 'Failed to create task.', 'error');
+            btn.innerHTML = 'Create Task';
+            btn.disabled = false;
+        }
+    });
+}
+
+/**
+ * Helper to create a task on a specific board column and refresh the view.
+ */
+async function createTaskOnBoard(modal, container, title, columnId, boardId) {
+    const desc = modal.querySelector('#custom-task-desc')?.value?.trim() || '';
+    const priority = modal.querySelector('#custom-task-priority')?.value || 'medium';
+    const dueDate = modal.querySelector('#custom-task-due')?.value || null;
+
+    await api.post('/tasks', {
+        title,
+        description: desc,
+        priority,
+        due_date: dueDate,
+        column_id: columnId,
+        board_id: boardId,
+        assigned_to: client.user_id || null
+    });
+
+    window.showToast('Task created!', 'success');
+    modal.remove();
+
+    // Reload tasks and re-render
+    await loadClientTasks(client.id);
+    const tabContent = container.querySelector('#tab-content');
+    if (tabContent) {
+        tabContent.innerHTML = renderTasksTab();
+        attachTabListeners(container);
+    }
+}
+
+/**
  * Render the client detail page.
  * @param {HTMLElement} container
  * @param {Object} params - Route params with params.id
@@ -743,6 +1124,9 @@ export async function render(container, params) {
     sessions = [];
     goals = [];
     notes = [];
+    clientTasks = [];
+    clientTemplateAssignments = [];
+    availableTemplates = [];
     activeTab = 'overview';
     isEditing = false;
     isAddingSession = false;
@@ -775,6 +1159,9 @@ export async function render(container, params) {
     } else {
         await loadClientSessions(params.id);
     }
+
+    // Load client tasks and template assignments
+    await loadClientTasks(params.id);
 
     // Render full page
     renderPage(container);
